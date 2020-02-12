@@ -1,4 +1,4 @@
-# OAF-Loan-Collateral-Analysis
+# OAF Loan Collateral Analysis
 
 ## Summary: 
 This repository contains the results of an analysis of the use of collateral to repay microloans at One Acre Fund. I designed, piloted, and managed a phone survey to collect the data used in the analysis. This analysis helped team leadership arrive at a consensus on two points.  The first was that collateral usage was mostly positive for clients and the company. The second was that we could pursue low-cost recommendations that came out of the analysis to help clients make wise decisions about how they used collateral. The main benefit of the analysis is that quantified the effect and perception of collateral usage. It provided a basis of facts that team leadership used to end the perennial debate on collateral policy.
