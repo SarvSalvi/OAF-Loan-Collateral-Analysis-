@@ -1,0 +1,1240 @@
+---
+title: "Collateral Phone Survey Report"
+author: "Sarv Salvi"
+date: "November 30, 2017"
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 4
+---
+  
+```{r setup, include=FALSE}
+  knitr::opts_chunk$set(echo = TRUE)
+```
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  ## Analysis of Collateral Phone Survey
+  ## Written by: Sarv Salvi
+  ## Date: 26/10/17
+  
+  # Initializing:
+  rm(list=ls())
+  library(dplyr)
+  library(ggplot2)
+  library(openxlsx)
+  library(knitr)
+  library(boot)
+  library(stargazer)
+  library(caTools)
+  library(kableExtra)
+  ## Reading and Cleaning Data
+  
+  # Reading the dataset from Version 1
+  dat <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Phone Survey/November 7/Collateral and Group Repayment Survey/Forms.csv", colClasses = c(rep("character",49)))
+  
+  
+  
+    #### Cleaning of Version 1 data frame before merging:
+    # Dropping by Date:
+    dat$completed_time <- as.Date(dat$completed_time, format = "%Y-%m-%d %H:%M:%S")
+    dat$started_time <- as.Date(dat$started_time, format = "%Y-%m-%d %H:%M:%S")
+    dat$received_on <- as.Date(dat$received_on, format = "%Y-%m-%d %H:%M:%S")
+    
+    cutoffdate <- as.Date("2017-10-22")
+    dat <- dat[(dat$completed_time >= cutoffdate), ]
+    
+    dat$version <- 1
+    
+    #Generating varible list
+    varnames <- colnames(dat)
+    varclass <- lapply(dat, class)
+    
+    
+    
+    
+  # Appending in the dataset from Version 2:
+  datv2 <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Phone Survey/November 7/Collateral and Group Repayment Survey Version 2/Forms.csv", colClasses = c(rep("character",49)))
+    
+  
+    datv2$version <- 2
+  
+    #Renaming variable names
+    colnames(datv2) <- varnames
+    
+    # Appending version 2 Data:
+    dat <- rbind.data.frame(dat, datv2)
+    
+    ### Cleaning of appended data frame
+    
+    # Moving in the duplicates checks here.
+    
+    # Unique ids:
+    dat$unique_id <- paste(dat$form.Farmer_Information.Farmer_OAFID, dat$form.Farmer_Information.site_name, sep = "")
+    
+    # Cleaning duplicates:
+    dat$dups <- duplicated(dat$unique_id) | duplicated(dat$unique_id, fromLast = TRUE)
+    datdups <- dat[dat$dups == TRUE,]
+    
+    #Producing the csv for Jacque to check
+    write.csv(datdups, "C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Output/Duplicates from Version 1 Survey Nov 4.csv")
+    
+    # dropping the duplicates to continue with the script:
+    dat <- dat[dat$dups == FALSE,]
+    
+    # Cleaning up places with no site name:
+    dat$no_site <- dat$form.Farmer_Information.site_name == "---"
+    datnosite <- dat[dat$no_site == TRUE,]
+    write.csv(datnosite, "C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Output/No Site Names from Version 1 Survey Nov 4.csv")
+    
+  
+  #Merging in resurveyed consent data:
+  # I will need to update this at a later point with the completed resurvey calls.
+  consentdat <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Phone Survey/Consent Resurveys/Group Repayment and Collateral Updates - Resurvey for Consent v4.csv", colClasses = c(rep("character",9)))
+  
+    consentdat$form.collateral_questions.No_Consent <- NULL
+    consentdat$form.collateral_questions.Pressured <- NULL
+    consentdat$form.collateral_questions.Harrassers <- NULL
+    
+    colnames(consentdat)[4] <- "form.Collateral_Group_Repayment_Questions.No_Consent"
+    colnames(consentdat)[5] <- "form.Collateral_Group_Repayment_Questions.Pressured"
+    colnames(consentdat)[6] <- "form.Collateral_Group_Repayment_Questions.Harrassers"
+    
+    consentdat <- consentdat[,(1:6)]
+    
+    #unique ID
+    consentdat$unique_id <- paste(consentdat$form.Farmer_Information.Farmer_OAFID, consentdat$form.Farmer_Information.site_name, sep = "")
+  
+    # Merging in the cleaned data:
+    dat <- left_join(dat, consentdat, by = c("unique_id" = "unique_id"))
+    
+    
+    for (x in 1:nrow(dat)){
+      if (!is.na(dat[x,57])){
+        dat[x,16] <- dat[x,57]
+      }
+      
+      if (!is.na(dat[x,58])){
+        dat[x,17] <- dat[x,58]
+      }
+      
+      if (!is.na(dat[x,59])){
+        dat[x,18] <- dat[x,59]
+      }
+      
+    }
+    
+  #### General Cleaning of Merged Data Set ####
+    
+    # Dropping and renaming variables after merge
+    dat <- dat[,1:53]
+    
+      colnames(dat)[16] <- "form.Collateral_Group_Repayment_Questions.No_Consent"
+      colnames(dat)[17] <- "form.Collateral_Group_Repayment_Questions.Pressured"
+      colnames(dat)[18] <- "form.Collateral_Group_Repayment_Questions.Harrassers"
+      
+      colnames(dat)[5] <- "form.Farmer_Information.Farmer_OAFID"
+      colnames(dat)[6] <- "form.Farmer_Information.district_name"
+      colnames(dat)[7] <- "form.Farmer_Information.site_name" 
+      
+      # Cleaning up these variables:
+      dat$form.Collateral_Group_Repayment_Questions.No_Consent <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.No_Consent), grepl("yes", dat$form.Collateral_Group_Repayment_Questions.No_Consent, ignore.case = TRUE), "Yes") 
+  
+          
+      dat$form.Collateral_Group_Repayment_Questions.Pressured <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Pressured), grepl("No", dat$form.Collateral_Group_Repayment_Questions.Pressured, ignore.case = TRUE), "No Pressure") 
+      dat$form.Collateral_Group_Repayment_Questions.Pressured <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Pressured), grepl("Some", dat$form.Collateral_Group_Repayment_Questions.Pressured, ignore.case = TRUE), "Some Pressure") 
+      dat$form.Collateral_Group_Repayment_Questions.Pressured <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Pressured), grepl("Heavy", dat$form.Collateral_Group_Repayment_Questions.Pressured, ignore.case = TRUE), "Heavy Pressure") 
+      
+      dat$form.Collateral_Group_Repayment_Questions.Harrassers.FO <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Harrassers.FO), grepl("fo", dat$form.Collateral_Group_Repayment_Questions.Harrassers, ignore.case = TRUE), "1") 
+      dat$form.Collateral_Group_Repayment_Questions.Harrassers.GL <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Harrassers.GL), grepl("gl", dat$form.Collateral_Group_Repayment_Questions.Harrassers, ignore.case = TRUE), "1") 
+      dat$form.Collateral_Group_Repayment_Questions.Harrassers.OM <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Harrassers.OM), grepl("other", dat$form.Collateral_Group_Repayment_Questions.Harrassers, ignore.case = TRUE), "1") 
+      
+      dat$form.Collateral_Group_Repayment_Questions.Enforcers.GL <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Enforcers), grepl("gl", dat$form.Collateral_Group_Repayment_Questions.Enforcers, ignore.case = TRUE), "1") 
+      dat$form.Collateral_Group_Repayment_Questions.Enforcers.GL[dat$form.Collateral_Group_Repayment_Questions.Enforcers.GL != "1"] <- "0" 
+      
+      dat$form.Collateral_Group_Repayment_Questions.Enforcers.FO <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Enforcers), grepl("fo", dat$form.Collateral_Group_Repayment_Questions.Enforcers, ignore.case = TRUE), "1") 
+      dat$form.Collateral_Group_Repayment_Questions.Enforcers.FO <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Enforcers), grepl("choice7", dat$form.Collateral_Group_Repayment_Questions.Enforcers, ignore.case = TRUE), "1") 
+      
+      dat$form.Collateral_Group_Repayment_Questions.Enforcers.FO[dat$form.Collateral_Group_Repayment_Questions.Enforcers.FO != "1"] <- "0" 
+      
+    # Converting classes:
+    varnames <- colnames(dat)
+    varclass <- lapply(dat, class)
+      
+      # Removing the --- and then dropping some obs that are being generated with only NAs
+        # for some reason this turns it into factors again. so I have to turn it into character again before converting to numric
+        # also gotta make sure it stays a data frame lapply is list apply it turns it into a list.
+      dat <- data.frame(lapply(dat, function(x) {
+        gsub("---", NA , x)
+      }))
+      
+      
+      # Converting the numeric veriables to numeric
+      dat$form.Farmer_Information.Farmer_OAFID <- as.numeric(as.character(dat$form.Farmer_Information.Farmer_OAFID))
+      dat$form.Collateral_Group_Repayment_Questions.Collateral_value <- as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_value))
+      dat$form.Collateral_Group_Repayment_Questions.Unfair_Value_Discrepancies <- as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Unfair_Value_Discrepancies))
+      dat$form.Collateral_Group_Repayment_Questions.Absolute_Difference <- as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Absolute_Difference))
+    
+    
+    # dropping Surveys with incorrect oafids
+    dat <- dat[(floor(log10(dat$form.Farmer_Information.Farmer_OAFID)) > 2),]
+    
+    # Dropping test forms where the enumerator put in a full a multi digit oafid but no names.
+    dat <- dat[nchar(as.character(dat$form.Farmer_Information.Farmer_First_Name))>2,]
+    
+    # Dropping GLs
+    dat <- dat[(!dat$form.Farmer_Information.group_leader=="1"),]
+    
+    # Cleaning Collateral Type:
+    dat$form.Collateral_Group_Repayment_Questions.Collateral_Type <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type), dat$form.Collateral_Group_Repayment_Questions.Collateral_Type == "trees", "Trees") 
+    
+    # This approach I think puts some of the mixed answers ex. goat + trees into trees.
+    dat$form.Collateral_Group_Repayment_Questions.Collateral_Type <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type), grepl("tree", dat$form.Collateral_Group_Repayment_Questions.Collateral_Type_Other, ignore.case = TRUE), "Trees") 
+    
+    dat$form.Collateral_Group_Repayment_Questions.Collateral_Type <- replace(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type), dat$form.Collateral_Group_Repayment_Questions.Collateral_Type_Other == c("Chicken"), "livestock") 
+    
+  
+    
+    
+    
+    # Dropping NAs
+    #dat <- dat[!is.na(dat$formid),]
+    
+    ###### Loading in Season Clients and Banned Clients List
+    SeasonClients <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Sample/Season Clients Detailed_20171012-091944.csv") 
+    
+      # Getting Table for Ideal sample for each district:
+      DistrictSampling <- transform(as.data.frame(table(SeasonClients$DistrictName)), percentage_column=Freq/nrow(SeasonClients)*100)
+    
+      #Calculating group size:
+      #Coming up with Unique identifier for group's - groups are supposed to be unique at the site level and sites at the district level.  So I need to add all of those toghether.
+      SeasonClients$GroupIdentifier <- paste(SeasonClients$DistrictName, SeasonClients$SiteName, SeasonClients$GroupName , sep = "")
+      
+      SeasonClients <- SeasonClients %>%
+       group_by(DistrictName, SiteName, GroupName) %>%
+        mutate(count = n()) 
+      
+      # Leaving only 1 observation for each group
+      SeasonClientsSS <- SeasonClients[!duplicated(SeasonClients$GroupIdentifier), ]
+      SeasonClientsSS <- SeasonClientsSS[, 195:196] 
+      
+      # Trying with the sample ones:
+      file1 <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Sample/Sample Oct21.csv")
+      file1 <- file1[,1:194]
+      file2 <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Sample/Sample Oct24.csv")
+      file2 <- file2[,1:194]
+      file3 <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Sample/Sample Nov1.csv")
+      file3 <- file3[,1:194]
+      file4 <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Sample/Sample Nov3.csv")
+      file4 <- file4[,1:194]
+      
+      totalsample <- rbind(file1, file2, file3, file4)
+     
+      #Getting group size for each of the farmers in the sample by merging based on group identifer with Season Clients.
+      totalsample$GroupIdentifier <- paste(totalsample$districtname, totalsample$sitename, totalsample$groupname, sep = "")
+      totalsample <- left_join(totalsample, SeasonClientsSS, by = c("GroupIdentifier"="GroupIdentifier"))
+      
+      
+      #Default Status?
+      defaultstatus <- read.csv("C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Sample/Banned Clients/LR2017 Final Ban List Tracker - Ban List.csv")
+      
+      dat<- left_join(dat, defaultstatus, by = c("form.Farmer_Information.Farmer_OAFID"  = "OAFID"))
+      dat$SoldDefault <- dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold == "1" & dat$Reason == "Client_Default" 
+      dat$GroupDefault <- dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold == "1" & dat$Reason == "Group_Default"
+      
+      
+      # Subsetting Data before merge in order to reduce load on RAM:
+      keepssc <- c("oafid", "sitename", "totalcredit", "districtname", "count")
+      totalsample<- totalsample[keepssc]
+      
+      # unique_id 
+      totalsample$unique_id <- paste(totalsample$oafid, totalsample$sitename, sep = "")
+      
+      # Merge 
+      dat <- left_join(dat, totalsample, by = c("form.Farmer_Information.Farmer_OAFID" = "oafid"))
+      # This line is generating a lot of duplicates why is that.
+  
+      dat$districtcheck <- as.character(dat$form.Farmer_Information.district_name) == as.character(dat$districtname)  
+      dat$sitecheck <- as.character(dat$form.Farmer_Information.site_name) == as.character(dat$sitename) 
+      dat$mergedups <- duplicated(dat$form.Farmer_Information.Farmer_OAFID) | duplicated(dat$form.Farmer_Information.Farmer_OAFID, fromLast = TRUE)
+      
+      # Dropping the duplicate that does not have a district or site match.
+      dat$totalcheck <- (dat$mergedups & (dat$districtcheck | dat$sitecheck))
+      dat$totalcheck<- replace(dat$totalcheck, dat$mergedups == FALSE, TRUE)
+      
+      dat <- dat[dat$totalcheck == TRUE,]
+      
+      # cleaning the total credit number:
+      # Calculating Value as a percentage of loan portfolio:
+      dat$totalcredit <- as.numeric(gsub(",", "",as.character(dat$totalcredit)))
+      
+  
+  # FInal cleaning of the dataset.  After this point I will just be subsetting it for the various kinds of regressions I want to see.
+      
+      # Creating numeric and factor versions of certain variables
+      
+      #Creating an Indicator of whether the circumstances of collateral selling were negative (pressured or consent)
+      dat$CollateralNegativeCircumstances <- NA
+      dat$CollateralNegativeCircumstances[dat$form.Collateral_Group_Repayment_Questions.Pressured == "Heavy Pressure"] <- "1"
+      dat$CollateralNegativeCircumstances[dat$form.Collateral_Group_Repayment_Questions.Pressured == "Some Pressure"] <- "1"
+      dat$CollateralNegativeCircumstances[dat$form.Collateral_Group_Repayment_Questions.No_Consent == "No"] <- "1"
+      dat$CollateralNegativeCircumstances[is.na(dat$CollateralNegativeCircumstances) & dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold == 1] <- "0"
+  
+      dat$CollateralNegativeCircumstances <- as.numeric(dat$CollateralNegativeCircumstances)
+      
+      # Converting Enrollment into a numeric so that it can be used in Regressions later on.
+      
+      dat$Enrollment_Indicator <- NA
+      dat$Enrollment_Indicator[dat$form.effect_on_re.enrollment.Re_Enroll_2018 == "contract_signed" | dat$form.effect_on_re.enrollment.Re_Enroll_2018 == "planned"] <- "1"
+      dat$Enrollment_Indicator[dat$form.effect_on_re.enrollment.Re_Enroll_2018 == "no"] <- "0"
+      dat$Enrollment_Indicator <- as.numeric(as.character(dat$Enrollment_Indicator))
+      
+      
+      # Cleaning up levels from the Collateral Selling Time Question.
+      
+      levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)=="after_contract_signing_but_before_the_qualifiers_deadline_of_december_31st"] <- "Before Qualifiers Deadline"
+
+    levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)=="after_december_31st_qualifiers_deadline_but_before_input_delivery"] <- "After Qualifers Before Input Delivery"
+    
+    levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)=="after_harvest_but_before_repayment_deadline"] <- "After Harvest"
+    
+    levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)=="after_input_delivery_but_before_harvest"] <- "After Input Delivery Before Harvest"
+  
+    dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time <- factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time,levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[c(1, 2, 4, 3)])
+  
+  ## Producing the final dataset  
+  write.csv(dat, "C:/Users/bsalv/Documents/Work/One Acre Fund/PGD/Group Collateral and Repayment/Datasets/Output/Final Data.csv")  
+  #Creating Subset of Data for Only Collateral Sellers
+    DatCollateral <- dat[dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold == "1", ]
+  
+    ## Summary of Collateral Agreements subset
+    #We only asked these question to poeple from version 1 and people who used collateral in version 2
+        datversion1 <- dat[dat$version == "1",]
+        
+    
+    # This should give me a sense compared to the first of whether I should spend time constucting a regressgion on this.
+      datversion1collateral <- datversion1[datversion1$form.Collateral_Group_Repayment_Questions.Collateral_Sold == "1",]
+  
+     # list of non-sellers
+      DatNonCollateral <- dat[dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold == "0", ]
+      
+    # list of nonsellers from v1: ie. nonsellers with full info.
+      DatNonCollateralv1 <- DatNonCollateral[DatNonCollateral$version == "1", ]
+      
+    # List of negtaive experinces:
+    datnegative <- dat[dat$CollateralNegativeCircumstances == 1 & !is.na(dat$CollateralNegativeCircumstances),]
+      
+  ## Creating functions in order to calculate probability from logistic regression output:
+      log2prob <- function(intercept, coeff1, x) {
+              return(exp(intercept+coeff1*x)/(1 + exp(intercept+coeff1*x)))
+      }
+      
+  ## Removing unccesary dataframes from global environment:
+      rm(file1, file2, file3, file4, SeasonClientsSS, SeasonClients, datnosite, defaultstatus, totalsample)
+  
+```
+  
+### Summary of Research on Collateral and Collateral Policy Changes
+  
+  A few reports produced in LR 2016 and LR 2017 have indicated that collateral may be affecting the Kenya program through a number of different channels.  
+ 
+  1. 2017 Enrollment Report:  45% of non-enrollees claimed that fear of loosing collateral was a major reason for their decision not to re-enroll.  Fear of having to sell collateral was also a major concern for 33% of those who did enroll.  From these findings an important question for future growth is whether fear of loosing collateral is based on actual experience of clients with One Acre Fund or is it part of a more general fear of loans.
+ 
+  2. 2016 Repayment Report: This report summarizes survey data on collateral that suggest that some clients are pressured to sell collateral.  For example, 26% of clients claimed their GL had threatened to take collateral and 28% claimed their FO had threatened to take collateral. This suggests that collateral may be an important client protection issue.   
+  
+  During the Long Rains 2016 season we tried to distance ourselves from collateral by forbidding FOs from asking clients to sell collateral or be present when it is sold. There were also no trainings for groups on collateral. Early in the Long Rains 2017 focus groups were asked for their opinions and experience with collateral. From those discussions we discovered that clients generally positive opinions about collateral.  They felt that being able to collect collateral was an important way to prevent group banning. Based on those focus groups we created a collatral agreement form for groups to use and a training that gave best practices on using collateral. However, FOs are still not allowed to be involved in anything related to collateral including the creation of the agreements.
+  
+### Purpose of Report
+  
+  This report summarizes the results of a phone survey conducted late in 2018. Its primary purpose is to provide figures that will help decision makers size the issue and identify the key ways that collateral affects clients.  The report also includes some recomendations and topics for further investigation.
+  
+### Definition of Collateral 
+  
+  In the formal banking system collateral is defined as any asset pledged to guarantee repayment of a loan or sold in order to repay a loan. 
+  
+### Scale of Collateral Usage
+  
+  The scale of collateral usage is described in two ways:
+  
+  1. Proportion of clients who have to sell collateral or create collateral agreements. 
+  2. Portion of total transaction being paid for with collateral.  
+
+#### Frequency Of Collateral Selling and Collateral Agreement Creation
+
+Roughly, 1 in 8 clients claimed to have sold collateral to repay their loans.  This means that on average there is one person in each group who will have to sell collateral.  
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+   #### Improvement Suggestions:
+        ## 1. Should I include a column of the number of people that a percent represents.
+  
+    #Calcultaing the bootstrapped confidence interval:
+    # I will temporarily comment it out since it takes a long time to run
+    #i <- 45
+    #bootmean <- function(dat, i){
+    #  return(mean(as.numeric(as.character(dat[i])), na.rm = TRUE)) 
+    #}
+    
+    #CollateralBoot <- boot(as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)), statistic = bootmean, R=5000)    
+    #CollateralSoldCI <- boot.ci(boot.out = CollateralBoot, type = c("bca"))
+  
+    #Adjusting level names and ordering for Collateral sold
+      levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)=="1"] <- "Yes"    
+      
+        levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)=="0"] <- "No"    
+        
+        #Adjusting order of table rows
+        dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold <- factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold,levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)[c(2,1)])
+        
+         # Percent of people who have sold collateral:
+      CollateralSold <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold, dnn = "Sold Collateral")), percentage_column = round(Freq/nrow(dat)*100,digits = 2))  
+    
+       
+      kable(CollateralSold, caption = text_spec("Scale of Collateral Selling in Kenya Program", bold = FALSE, color = "#000000"), col.names = c("Collateral Sold", "Number of Clients in Sample", "Percent"))
+``` 
+  
+  CI for % Selling Collateral: (0.1100,  0.1383) at 95%.
+  
+ The table below shows that just under 40% of clients are in a group that had some sort of collateral agreement in Long Rains 2017.  Please note that this statistic makes no distinction between written or verbal collateral agreements.
+ 
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+  # Getting the CI once here.
+  
+    #Adjusting level names for CI calc here
+      levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)=="yes"] <- "1"    
+      
+        levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)=="no"] <- "0"
+  
+    #i <- 34
+    #bootmean <- function(datversion1, i){
+    #  return(mean(as.numeric(as.character(datversion1[i])), na.rm = TRUE)) 
+    #}
+    
+    #CollateralAgreementBoot <- boot(as.numeric(as.character(datversion1$form.collateral_agreement_questions.Collateral_Agreement)), statistic = bootmean, R=5000)    
+    #CollateralAgreementCI <- boot.ci(boot.out = CollateralAgreementBoot, type = c("bca"))
+  
+    # Percent of clients that have created a collateral agreement
+    # I need to track versions in order to get at this.
+      
+      #Adjusting level names
+      levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)=="1"] <- "Yes"    
+      
+        levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)=="0"] <- "No"
+      
+        # Adjusting the rows in the table
+     datversion1$form.collateral_agreement_questions.Collateral_Agreement <- factor(datversion1$form.collateral_agreement_questions.Collateral_Agreement,levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[c(2,1)])
+        
+        TotalPercUsingAgreements <- transform(as.data.frame(table(datversion1$form.collateral_agreement_questions.Collateral_Agreement, dnn = "Created Agreement")), percentage_column= round(Freq/nrow(datversion1)*100,  digits = 2))
+     
+    kable(TotalPercUsingAgreements, caption = "Scale of Collateral Agreement Creation in Kenya Program", col.names = c("Collateral Agreement Created", "Number of Clients in Sample", "Percent"))
+    
+```
+  
+  CI for % Creating Collateral Agreement: (0.3618,  0.4238) at 95%.
+  
+#### Sizing Repayment Activity Financed by Collateral 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+dat$form.Collateral_Group_Repayment_Questions.Collateral_value[as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_value)) >=as.numeric(as.character(dat$totalcredit))] <- NA
+      
+      #print("Mean Amount in KES Recieved from Selling Collateral")
+      CollateralValueMean <- round(mean(dat$form.Collateral_Group_Repayment_Questions.Collateral_value, na.rm = TRUE), digits = 2)
+      #print(CollateralValueMean)
+      
+      #print("SD of Amount in KES Recieved from Selling Collateral")
+      CollateralValueSD <- round(sd(dat$form.Collateral_Group_Repayment_Questions.Collateral_value, na.rm = TRUE), digits = 2)
+      #print(CollateralValueSD)
+      
+```
+
+Those who sold collateral report an average value of `r CollateralValueMean` KES (SD: `r CollateralValueSD`) for the collateral sold.  The density plot shows the distribution of collateral values shows a corresponding spike close to this average. 
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+  
+  
+    #Improvements:
+    #1. Once I calculate the average value then I can scale up to how much that value is over the entire program.
+  
+    #Summary stats on value of the collateral
+      
+      
+      
+      CollateralValueDensityPlot <- density(dat$form.Collateral_Group_Repayment_Questions.Collateral_value, na.rm = TRUE)
+      plot(CollateralValueDensityPlot, main = "Density Plot of Amount in KES Recieved from Collateral")
+      
+```
+  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+dat$PercTransaction <- (as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_value)))/(as.numeric(as.character(dat$totalcredit)))*100 
+      
+        # Cleaning out outliers for Perc of Transaction
+        index <- dat$PercTransaction >= 100
+        dat$PercTransaction[index] <- NA
+        
+        # Calculating Mean and standard deviation and density plot
+        #print("Mean of Collateral Value as a % of Total Credit")
+        CollateralPercTransactionMean <- round(mean(dat$PercTransaction, na.rm = TRUE), digits = 2)
+        #print(CollateralPercTransactionMean)
+        
+        #print("SD of Collateral Value as a % of Total Credit")
+        CollateralPercTransactionSD <- round(sd(dat$PercTransaction, na.rm = TRUE), digits = 2)
+        #print(CollateralPercTransactionSD)
+
+```
+
+To get a better sense of the importance of collateral to repayment we can look at the value of the collateral relative to the total transaction size. The average percent of the total transaction that is repaid using collateral is `r CollateralPercTransactionMean`% (SD: `r CollateralPercTransactionSD`).  The density plot below shows the distribution of this variable.  This suggests that collateral sellers have a significant portion of their loan remaining when they decide to sell.  
+  
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+  
+    
+        CollateralPercTransactionDenPlot <- density(dat$PercTransaction, na.rm = TRUE)
+        plot(CollateralPercTransactionDenPlot, main = "Density Plot of Collateral Value as a % of Total Credit")
+         
+```
+  
+  
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+  #### Are their Districts with "Collateral Cultures"?
+  
+  #### Improvements:  This question is important but I should move it to a figure at the end 
+  
+  #Is there a higher prorpotion by District?
+        #Use the district name that is from roster.
+        # Not sure how useful this will be becuase the sample size from each district is so small.
+  #  DistrictCollateral <- table(dat$districtname, dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)
+    
+   # kable(DistrictCollateral, caption = "Collateral Selling Rate by District")
+```
+  
+### Effect on Clients
+  
+
+#### Client Experience:
+  
+  
+  In the phone survey we asked two questions to understand client experience around collateral.  The first was whether collateral was sold with the consent of the client.  The second was the level of pressure to sell collateral that they experienced.  These two measures were collected independently.  For example it was possible for a collateral seller to have not been heavily pressured but still have their collateral sold without their consent.  The tables below summarize the findings from these two questions.
+  
+  From the table below we see that in the vast majority clients who sold collateral have either sold collateral voluntarily.  Non-consensual collateral seizure is experienced by about 0.6% of the total country program which in LR 2017 was roughly 1500 clients. Similarly, the vast majority of clients never felt pressured to sell collateral.  Just about 2% of the country program reported feeling some amount of pressure to sell collateral.
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+  ## Suggestions for improvement:  
+  #1. same as the section above + whats below
+  #2. combining overall vs. within the group of contract sellers.
+  #3. COmbining consent in the category of no-pressure.- But I have collected pressure data for people without consent so maybe i stay with the one that I have. (Yes because some permuatation of the two are very rare.)
+  #4. this does not include people who refused to sell collateral AND who were not forced to.
+  #5. Combining some and heavy pressure
+  #6. Reodering the rows according to names.
+    
+   # Consent:
+    
+    dat$form.Collateral_Group_Repayment_Questions.No_Consent[dat$form.Collateral_Group_Repayment_Questions.No_Consent == "1"] <- "Yes"
+    dat$form.Collateral_Group_Repayment_Questions.No_Consent <- droplevels(dat$form.Collateral_Group_Repayment_Questions.No_Consent)
+    
+    #Adjusting order of table rows
+        dat$form.Collateral_Group_Repayment_Questions.No_Consent <- factor(dat$form.Collateral_Group_Repayment_Questions.No_Consent,levels(dat$form.Collateral_Group_Repayment_Questions.No_Consent)[c(2,1)])
+    
+    Consent <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.No_Consent)),percentage_column= round(Freq/nrow(dat)*100, digits = 2), perc_sample = round(Freq/nrow(DatCollateral)*100, digits = 2))
+    
+   kable(Consent, caption = "Proportion of Collateral Sold With Consent", col.names = c("Consent Status", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))
+  
+    # Pressure:
+   
+    ## This one should be calculated later when the number of data points is increased.
+    # I need to also add in the number that had collateral sold without consent.
+   
+        #Cleaning the pressure Categories:
+        dat$form.Collateral_Group_Repayment_Questions.Pressured[dat$form.Collateral_Group_Repayment_Questions.Pressured == "Voluntary"] <- "No Pressure"
+        
+        dat$form.Collateral_Group_Repayment_Questions.Pressured <- factor(dat$form.Collateral_Group_Repayment_Questions.Pressured,levels(dat$form.Collateral_Group_Repayment_Questions.Pressured)[c(2,3,1)])
+        
+        dat$form.Collateral_Group_Repayment_Questions.Pressured <- droplevels(dat$form.Collateral_Group_Repayment_Questions.Pressured)
+   
+   PressureLevel <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.Pressured)),percentage_column= round(Freq/nrow(dat)*100, digits = 2), perc_sellers = round(Freq/nrow(DatCollateral)*100, digits = 2))
+    
+    kable(PressureLevel, caption = "Proportion of Collateral Sold under Various Pressure Levels", col.names = c("Pressure Level", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))
+  ### include regressions or correlations here on link between non-ideal collateral selling and collateral agreement ect.
+    
+    #Coerced <- transform(as.data.frame(table(dat$CollateralNegativeCircumstances)),percentage_column= round(Freq/nrow(dat)*100, digits = 2), perc_sellers = round(Freq/nrow(DatCollateral)*100, digits = 2))
+    
+    #kable(Coerced, caption = "Proportion of Clients Under Pressure or Without Consent", col.names = c("Coerced", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))
+   
+```
+  
+  
+#### Program Impact
+
+  Collateral selling can affect program impact at scale through a number of number of different mechanisms. Through the phone survey we were able to collect data on some of these mechanisms.  
+  
+  1. Type of Items Sold:  As shown in the table below clients who sell collateral typically sell a portion of their maize harvest, livestock (chickens, cows, goats) or trees.
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}  
+  
+  ## Suggestions for improvement here:
+  # 1. order the writing above into order of priority based on evidence from data that is available.
+  
+dat$form.Collateral_Group_Repayment_Questions.Collateral_Type <- as.factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)
+
+levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)=="livestock"] <- "Livestock"    
+
+levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)=="portion_of_maize_harvest"] <- "Portion of Maize Harvest" 
+
+levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)=="other"] <- "Other" 
+
+dat$form.Collateral_Group_Repayment_Questions.Collateral_Type <- factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type,levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type)[c(1,3,4,2)])
+
+  #What was sold?
+  CollateralType <- transform(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type), percentage = round(Freq/nrow(dat)*100, digits = 2), perc2 = round(Freq/nrow(DatCollateral)*100, digits = 2))
+  
+  kable(CollateralType, caption = "Type of Item Sold as Collateral", col.names = c("Asset Category", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))  
+  
+  #How does What was sold compare to pressured vs. non-pressured.
+  # table(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type, dat$form.Collateral_Group_Repayment_Questions.Pressured)) -- doesn't look like there is much of a trend between the type of item and the pressure.  Except when trees are sold those are typically without pressure.  
+  
+  #How does What was sold compare to pressured vs. consent:  There really are too few people in consent section though
+  #table(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Type, #dat$form.Collateral_Group_Repayment_Questions.No_Consent))  --- People who have items taken without consent also don't seem to have much of trend going on here. 
+  
+```
+  
+  Selling a portion of the maize harvest at harvest time is a common practice. There may be more clients selling a portion of their harvest then the amount shown here. These only represent the number of clients selling some of their harvest specifically for the purpose of repaying their loan from OAF.  Although we would prefer to have clients try to sell other goods that have a minimal direct effect on future income and food security but it is hard to imagine what those assets might be. These items seem to be the key stores of value for farmers that are also quite liquid and would not drastically change quality of life in the short term.
+  
+  2. Receiving an Unfair Price:  A significant number of collateral sellers claimed to have received an unfair value for their collateral.  This was reported by clients who sold collateral voluntarily as well those who were pressured or forced to sell.  This suggests that simply having to sell an asset exposes clients to the risk of receiving an unfair value.  The time pressure from the repayment deadline and the depressed prices of maize during the harvest period may also add to this problem. 
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}  
+  
+  # Improvments:
+  # 1. Getting two way split of consent and pressure against unfair value
+  # 1. Getting split of unfair value against type of collateral sold.
+  
+  levels(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value)[levels(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value)=="1"] <- "Yes"    
+      
+        levels(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value)[levels(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value)=="0"] <- "No"
+      
+        # Adjusting the rows in the table
+     DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value <- factor(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value,levels(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value)[c(2,1)])
+      
+  
+   #Fair value for Collateral:
+      CollateralValueFair <- transform(as.data.frame(table(DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value, dnn = "Fair value")),percentage = round(Freq/nrow(dat)*100, digits = 2), percentage_column= round(Freq/nrow(DatCollateral)*100, digits = 2))
+  
+      kable(CollateralValueFair, caption = "Received Fair Value", col.names = c("Fair value", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))  
+      
+      # Fair Value split across the t he consent categories- in this one and the next one by percent there seems to be higher number of people who claim unfair value if they did not give consent or were pressure heavily.
+      #CollateralValueFairAcrossConsent <- transform(as.data.frame(table(DatCollateral$form.Collateral_Group_Repayment_Questions.No_Consent, DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value, dnn = "Fair value")),percentage = Freq/nrow(dat)*100, percentage_column=Freq/nrow(DatCollateral)*100)
+  
+      #kable(CollateralValueFair, caption = "Fair Value across Consent", col.names = c("Fair value", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))  
+      
+      #Fair Value split across the pressure categories
+      #CollateralValueFairAcrossPressure <- transform(as.data.frame(table(DatCollateral$form.Collateral_Group_Repayment_Questions.Pressured, DatCollateral$form.Collateral_Group_Repayment_Questions.Fair_Value, dnn = "Fair value")),percentage = Freq/nrow(dat)*100, percentage_column=Freq/nrow(DatCollateral)*100)
+  
+      #kable(CollateralValueFairAcrossPressure, caption = "Fair Value across Pressure Levels", col.names = c("Pressure Levels", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))  
+      
+      #print("Mean of the self-reported dfference between the fair amount and amount received if value was unfair")
+      CollateralLostValue <- round(mean(dat$form.Collateral_Group_Repayment_Questions.Unfair_Value_Discrepancies, na.rm = TRUE), digits = 2)
+      #print(CollateralLostValue)
+      
+      # Density plot of the self-reported difference between Fair Value and Value Received
+      FairvalueDiscprencyDenPlot <- density(dat$form.Collateral_Group_Repayment_Questions.Unfair_Value_Discrepancies, na.rm = TRUE)
+      #plot(FairvalueDiscprencyDenPlot, main = "Density Plot of Lost value in KES")
+  
+```
+  
+  Among clients that report receiving an unfair value for their collateral on average difference between the value they received and the amount they think is fair is `r CollateralLostValue` KES.
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}  
+  
+      # Lost Value as a percent of Collatral Value:
+        dat$LostValuePercCollateralValue <- (dat$form.Collateral_Group_Repayment_Questions.Unfair_Value_Discrepancies/(dat$form.Collateral_Group_Repayment_Questions.Collateral_value+dat$form.Collateral_Group_Repayment_Questions.Unfair_Value_Discrepancies))*100
+        
+        #print("Mean Percent of Collateral Value that was Not Received")
+        MeanPerUnfairofCollateral <- round(mean(dat$LostValuePercCollateralValue, na.rm = TRUE), digits = 2)
+        #print(MeanPerUnfairofCollateral)
+        
+        # Density PLot of the Perc of the total Value of the collateral that was   
+        LostValuePercCollateralValueDenPlot <- density(dat$LostValuePercCollateralValue, na.rm = TRUE)
+        plot(LostValuePercCollateralValueDenPlot, main = "Density Plot of Lost Value as % of Value Received")
+        
+        #Poeple seem sto be reporting that they should have received between 1.5 and 2 times the price that they did.
+      # Split across pressured + no consent/voluntary groups
+      
+```
+  
+  On average the lost value was `r MeanPerUnfairofCollateral`% of the value they received.
+  
+  3. Selling assets with large differential between Asset Value and Remaining Loan Amount : This is problematic for farmers because they are loosing income producing assets because they do not have another asset that is closer to the value of the loan balance.  In addition, it may not be possible to reinvest the differential and produce a proportional amount of income. Below we look at how closely the actual amount loan amount paid off by selling the asset matched the selling price.  
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}  
+  
+  # Improvements:
+  #1. See the abs. diff for the above portion those are really the ones getting messed up (the 25% that are affected)
+  
+  # Appropriateness of Collateral vs. Loan
+
+levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)=="less"] <- "Less"
+
+levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)=="more"] <- "More"
+
+levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)=="same"] <- "Same"
+
+        # Cleaning up the -99's
+    dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan[dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan ==  "-99"] <- NA 
+  
+    dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan <- droplevels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)
+  
+     dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan <- factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan,levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)[c(2,3,1)])
+  
+        CollateralRelativeLoan <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Relative_Loan)),percentage_column= round(Freq/nrow(dat)*100, digits = 2),  perc = round(Freq/nrow(DatCollateral)*100, digits = 2))
+        
+        kable(CollateralRelativeLoan, caption = "Value of Collateral Relative to Remaining Loan", col.names = c("Collateral Value Relative to Loan Balance", "Number in Sample",  "Percent of Total Sample", "Percent of Collateral Sellers"))
+      
+        #print("Mean of the absolute difference between Remaining Loan and the Collateral")
+        AbsDiffUnfairValue <- round(mean(dat$form.Collateral_Group_Repayment_Questions.Absolute_Difference,  na.rm = TRUE), digits = 2)
+        #print(AbsDiffUnfairValue)
+        
+        dat$PercTotalCollateralValue <- dat$form.Collateral_Group_Repayment_Questions.Absolute_Difference/(dat$form.Collateral_Group_Repayment_Questions.Collateral_value + dat$form.Collateral_Group_Repayment_Questions.Absolute_Difference)*100
+        
+          # Mean perc of total value:
+          #print("Mean Lost Value as a % of Amount Recived")
+          #PercTotalCollateralValueMean <- mean(dat$PercTotalCollateralValue, na.rm = TRUE)
+          #print(PercTotalCollateralValueMean)
+```
+  
+  On average clients claim a difference of `r AbsDiffUnfairValue` KES between the value they got for the piece of collateral they sold and the amount that they had remaining on their loan.
+  
+  
+  4. Net Benefit to Retention:  Allowing collateral selling could be resulting in a net increase in retention.  Below are some statistics that provide support to a couple mechanisms for this.  However, knowing the size of the effect of each of these mechanisms with precision or proving a causal relationship would require further investigation.
+  
+  Effect on Group of Banning:  If 12.38% of clients have to sell collateral that is about equal to 1 person in each group.  Even if collateral sellers tend to be in groups with other collateral sellers it is easy to see that selling collateral selling is very beneficial in decreasing the number of banned clients.  
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}  
+  
+  #Improvement section:
+  #Scale this up to the entire kenya program
+  
+  # # of clients banned by group completion:
+  dat$BannedWithoutCollateral <- dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold == "1" & dat$SoldDefault == FALSE & dat$GroupDefault == FALSE 
+  
+  dat$BannedWithoutCollateral[is.na(dat$BannedWithoutCollateral)] <- TRUE
+  
+  BannedWithoutCollateral <- transform(as.data.frame(table(dat$BannedWithoutCollateral, dnn = "Banned without Collateral")),percentage_column= round(Freq/nrow(dat)*100, digits = 2),  perc = round(Freq/nrow(DatCollateral)*100, digits = 2))
+  
+  #kable(BannedWithoutCollateral, caption = "Banned without Collateral", col.names = c("Banned without Collateral", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))  
+  
+  
+  #print("Average Group Size of Individuals that Would have been Banned without Collateral")
+  #round(mean(dat$count[dat$BannedWithoutCollateral == TRUE], na.rm = TRUE), digits = 0)
+  
+  #print("Number of Additional Banned Clients Generated through Group Default")
+  Multiplier<- sum(dat$count[dat$BannedWithoutCollateral == TRUE], na.rm = TRUE)/201
+  
+  # fraction of counrty program:
+  UpperLimitDefault <- 201/nrow(dat)*233737 
+  
+```
+
+  Effect on Retention of Respondent:  The first of the two regressions below models the effect of having to sell collateral under any circumstances on re-enrollment.  What we see is that collateral sellers as a whole are only 4% less likely to re-enroll.  This result is statistically significant. However, in the next regression we break this result down further by looking at likelihood of re-enrollment across clients who had collateral sold without their consent or who were pressured to sell.  The results from this regression are intuitive.  Clients who have collateral sold without consent are 41% less likely to re-enroll.  This result is also very statistically significant.  Meanwhile, feeling pressured to sell collateral seems to have only a mildly negative effect on probability of re-enrollment and more importantly the result is not statistically significant. This means that those who are pressured do not appear to be less likely to re-enroll than those who sell completely voluntarily or those that do not sell collateral at all . These results suggest that the negative effect of selling collateral on re-enrollment is due almost entirely to the low probability of re-enrollment among those that had collateral sold without consent.  
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE, results='asis'} 
+  
+  #Improvements in this section:
+  #1. Convert regressions to logistic regressions
+  #2. Keep only key peices of the regression output like p value, and coefficient and maybe R statistics
+  
+  #Reverting from string factors to numeric variables for taking regression
+      levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)=="Yes"] <- "1"    
+        levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold)=="No"] <- "0"  
+  
+  dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold <- as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold))
+  
+  
+  # Creating Logistic Regression MOdels here.
+  # Need to readjust this model becuase the re-enrollment questions weren't asked to everyone right.
+  CollateralEffectonEnrollment <- glm(dat$Enrollment_Indicator ~ dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold, data=dat, family = binomial)
+  
+  CollateralNegativeEffectonEnrollment <- glm(dat$Enrollment_Indicator ~ dat$CollateralNegativeCircumstances, data=dat, family = binomial)
+  
+  # Cant do this one becasue of multi collinearity
+  #CollateralonEnrollmentCombined <- glm(dat$Enrollment_Indicator ~ dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold + dat$CollateralNegativeCircumstances, data=dat, family = binomial)
+  
+  #summary(CollateralEffectonEnrollment)
+  
+  #summary(CollateralNegativeEffectonEnrollment)
+  
+  #summary(CollateralonEnrollmentCombined)
+  
+  stargazer(CollateralEffectonEnrollment, type = 'html', title = "Effect of Selling Collateral on Re-enrollment in LR 2018")
+```
+<br>
+```{r , echo=FALSE, warning=FALSE, message=FALSE, results='asis'} 
+  
+  # Calculating Probability of Re-enrollment for Collateral Sellers
+  #ProbofReenrollSeller <- log2prob(coefficients(CollateralEffectonEnrollment)[1], coefficients(CollateralEffectonEnrollment)[2], 1) - log2prob(coefficients(CollateralEffectonEnrollment)[1], coefficients(CollateralEffectonEnrollment)[2], 0)
+  
+  #ProbofReenrollNegSeller <- log2prob(coefficients(CollateralNegativeEffectonEnrollment)[1], coefficients(CollateralNegativeEffectonEnrollment)[2], 1) - log2prob(coefficients(CollateralNegativeEffectonEnrollment)[1], coefficients(CollateralNegativeEffectonEnrollment)[2], 0)
+  
+  ### Doing the breakout of pressure and enrollment
+  # Got rid of the neg circumstances one because the breakout below is more informative.
+  
+  dat$OnlyPressure <- NA
+  dat$OnlyPressure[dat$form.Collateral_Group_Repayment_Questions.Pressured == "Heavy Pressure"] <- "1"
+  dat$OnlyPressure[dat$form.Collateral_Group_Repayment_Questions.Pressured == "Some Pressure"] <- "1"
+  dat$OnlyPressure[dat$form.Collateral_Group_Repayment_Questions.Pressured == "No Pressure"] <- "0"
+  
+  dat$OnlyPressure<- as.numeric(as.character(dat$OnlyPressure))
+  
+  # No consent has a 1 for the consent = Yes so I need to switch that.
+      levels(dat$form.Collateral_Group_Repayment_Questions.No_Consent)[levels(dat$form.Collateral_Group_Repayment_Questions.No_Consent)=="Yes"] <- "0"    
+      
+        levels(dat$form.Collateral_Group_Repayment_Questions.No_Consent)[levels(dat$form.Collateral_Group_Repayment_Questions.No_Consent)=="No"] <- "1"
+  
+        dat$form.Collateral_Group_Repayment_Questions.No_Consent<- as.numeric(as.character(dat$form.Collateral_Group_Repayment_Questions.No_Consent))
+        
+        
+#Logistic regression splitting consent, pressure   
+   FullSplitEnrollment <- glm(dat$Enrollment_Indicator ~ dat$OnlyPressure + dat$form.Collateral_Group_Repayment_Questions.No_Consent, data=dat, family = binomial)
+   
+   stargazer(FullSplitEnrollment, type = 'html', title = "Effect of Level of Coercion to Sell Collateral on Re-enrollment in LR 2018")
+  
+  
+  ProbofReenrollNoConsentSeller <- log2prob(coefficients(FullSplitEnrollment)[1], coefficients(FullSplitEnrollment)[3], 1) - log2prob(coefficients(FullSplitEnrollment)[1], coefficients(FullSplitEnrollment)[3], 0)
+  
+   # Are collateral sellers in bigger groups or smaller ones on average.
+    # Then I subtract all of those poeple that are banned anyway - using the banned client list.
+  
+  # How many times do people claim that their group didn't give them money because they didn't have any or they felt that their group didn't trust them to repair - isn't this an arguement for protecting other group members feeling pressure to cover for someone else? How many people Wouldn't rejoin because they didn't like having to cover for others in a group liability structure without the possibility of collateral selling.  This is the negative side.
+  
+  # The positive side how many people were able to repay and not be banned dispite an unanticiapted cost that would have knocked them out otherwise.  This is not a decision point however because the same peope would have been able to sell collateral no matter what we say unless people respond to promotion of collateral selling.  
+  
+  # Regression of unfair value + value discrepancy + Consent + pressured status and prediction of repayment.
+  
+```
+ 
+<br>  
+Unmeasured Costs of Selling Collateral:  All costs types listed below have no direct evidence from the phone survey that support their importance but are worth being acknowledged. 
+    
+1. Lost future value appreciation from an asset: This is may be especially important for trees and livestock.
+    
+2. Selling at low point in yearly market price cycle:  This is especially true for maize harvest sold at harvest time.
+  
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+    # Is it correlated with size of the remaining transaction, etc.
+          
+    #PercUsingAgreementofCollateralSellers <- transform(as.data.frame(table(datversion1collateral$form.collateral_agreement_questions.Collateral_Agreement, dnn  = "Created Agreement")),percentage_column=Freq/nrow(datversion1collateral)*100)
+    #kable(PercUsingAgreementofCollateralSellers, caption = "Percent who Created an Agreement of those that Sold Collateral")
+    
+      #Correlation of Collateral selling and agreemnt cration.
+    
+    # Revisit Collateral Agreements multiple times:
+    RevisitedAgreement <- table(dat$form.collateral_agreement_questions.Agreement_revisited, dnn = "Revisited Agreement")
+    
+    #Multiple Items:
+    MultipleItems <- table(dat$form.collateral_agreement_questions.Multiple_Collateral_Items, dnn = "Specified Multiple Items")
+    
+    # Used the Collateral Form:
+    UsedForm <- table(dat$form.collateral_agreement_questions.Used_form, dnn = "Used Collteral Agreement Form")
+    
+  
+```
+  
+### Learnings
+  
+This section summarizes key insights from previous sections and combines them with additional data points from the phone survey.  They are organized by thematic groups.
+  
+1. Effect of Collateral on Client Experience:
+  
+    +  Selling collateral without Consent: This is the most significant source of negative client experience related to collateral.  Those in this group are 41% less likely to rejoin the following season than the average client.  Efforts to improve client experience should focus on minimizing or eliminating this group.
+    
+     + Consent: The vast majority of collateral sellers (95%) do not have collateral taken without their consent.
+
+
+2. Effect of Collateral on Program Impact:
+  
+    + Selling Assets is a Costly method of Repayment:  Through a number of mechanisms selling collateral eats into the impact of the program for the collateral seller.  This is due to inefficiencies like selling a asset for less than its worth, at a time when its valuation is lower than it might be in the future, or when the value of the assets is greater than the value of the loan.  
+    
+    + Net-Benefit to Retention:  Roughly 1 person in each group has to rely on selling collateral to complete their loan which means the practice is boosting group completion and does not seem to have a significant impact on re-enrollment for the seller unless they had collateral taken without consent.
+      
+      
+3. Financial Position of Collateral Sellers
+  
+    + Collateral Sellers are Cash Strapped:  From the sections on the average value of collateral and the percentage of the total transaction that that collateral value represents we can see that most collateral sellers do not have enough cash around to cover an expense of over 2000 KES.
+      
+    + Collateral Sellers are far behind on their loans:  On average they have at least a third of their loan remaining.  This means that they are quite far behind on their loan at the end of the season which can make them seem like risky borrowers to their group members.
+      
+    + Unstable Secondary Source of Income:  The two points above in conjunction with the evidence below that the majority of collateral sellers could not point to an unanticipated expense suggests that this group does not have a stable secondary source of income.  
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+
+levels(DatCollateral$form.why_questions.Unanticipated_Expenses)[levels(DatCollateral$form.why_questions.Unanticipated_Expenses)=="1"] <- "Yes"    
+        levels(DatCollateral$form.why_questions.Unanticipated_Expenses)[levels(DatCollateral$form.why_questions.Unanticipated_Expenses)=="0"] <- "No" 
+        
+        DatCollateral$form.why_questions.Unanticipated_Expenses <- factor(DatCollateral$form.why_questions.Unanticipated_Expenses,levels(DatCollateral$form.why_questions.Unanticipated_Expenses)[c(2,1)])
+  
+  UnanticipatedExpenseSellers <- transform(as.data.frame(table(DatCollateral$form.why_questions.Unanticipated_Expenses, dnn = "Unanticipated Expenses Among Collateral Sellers")), percentage_column= round(Freq/nrow(DatCollateral)*100, digits = 2))
+  
+   kable(UnanticipatedExpenseSellers, caption = "Unanticipated Expenses Among Collateral Sellers", col.names = c("Unanticipated Expenses", "Number in Sample", "Percent of Collateral Sellers"))
+  
+```
+
+4. Group Coverage and Collateral Selling  
+  
+    + Group coverage and collateral selling are complementary: It appears that very few clients (2%) receive money from group members to make payments towards their loans and even fewer repay that amount by selling collateral.
+    
+    + Group Coverage is only possible for smaller amounts:  The finding above does not suggest that group coverage is something that does not happen or that group members don't lend any money to each other. It does suggest that it is not happening when the loan amounts remaining are above 1000 KES. When asked why they could not borrow from their group to cover their loan  the majority said that their group members either did not have the cash to cover them or believed that they would be unable to repay them. In a cash strapped environments amounts this large can only be paid off in a reasonable time frame with collateral in which case farmers are correct to cut to the chase and expect each other to sell collateral. 
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}  
+  
+  
+  levels(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received)[levels(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received)=="1"] <- "Yes"    
+      
+        levels(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received)[levels(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received)=="0"] <- "No"
+      
+        # Adjusting the rows in the table
+     dat$form.Collateral_Group_Repayment_Questions.group_repayment_received <- factor(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received,levels(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received)[c(2,1)])
+      
+  #  % of people who were covered by Group Member
+    GroupRepayment <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.group_repayment_received, dnn = "Respondent was Covered by Group Member(s)")),percentage = round(Freq/nrow(dat)*100, digits = 2))
+    
+    kable(GroupRepayment, caption = "Clients who were Covered by Group Member(s)", col.names = c("Covered by Group", "Number of Clients in Sample", "Percent of Total Sample"))
+    
+    
+  # Number of people who repaid a group coverage with collateral.
+    levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment)=="1"] <- "Yes"    
+      
+        levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment)=="0"] <- "No"
+      
+        # Adjusting the rows in the table
+     dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment <- factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment,levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment)[c(2,1)])
+     
+    
+    CollateralAfterGroupRepayment <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Group_Repayment)),percentage = round(Freq/nrow(dat)*100, digits = 2), percentage_column= round(Freq/nrow(DatCollateral)*100, digits = 2))
+    
+    kable(CollateralAfterGroupRepayment, caption = "Clients Repaying Group Coverage with Collateral", col.names = c("Repaid with Collateral", "Number of Clients in Sample", "Percent of Total Sample", "Percent of Collateral Sellers"))
+    
+```
+    
+          
+5. Financial Planning:
+      
+    + Collateral Selling is not a planned Strategy: Most clients don't plan on using collateral to repay their loan.  This was shown by the similar percentages of collateral sellers and non-sellers who claimed they had anticipated at the start of the season that they would have to use collateral to repay their loan.  Survey data on this is summarized below.
+    
+    + Collateral Sellers do not have strong estimates of cash flows:  The majority of seller could not point to an unanticipated expense during the season and they had not anticipated having to use collateral to repay their loan at the start of the season.  This suggests that collateral sellers do not have robust estimates for their cash flows over the course of the year.  This can be related to an unstable secondary source of income. This must affect how well they are able to select a loan size that is appropriate for them.
+    
+<br>    
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+  ## In version 1 everyone was asked in version 2 just collateral sellers were asked.  Therefore I should be comparing across the two groups.
+  
+    levels(DatCollateral$form.why_questions.Anticipated_Collateral)[levels(DatCollateral$form.why_questions.Anticipated_Collateral)=="1"] <- "Yes"    
+        levels(DatCollateral$form.why_questions.Anticipated_Collateral)[levels(DatCollateral$form.why_questions.Anticipated_Collateral)=="0"] <- "No" 
+        
+        DatCollateral$form.why_questions.Anticipated_Collateral <- factor(DatCollateral$form.why_questions.Anticipated_Collateral,levels(DatCollateral$form.why_questions.Anticipated_Collateral)[c(2,1)])
+        
+  # Anticipation amognts sellers
+  AnticipatedSellers <- transform(as.data.frame(table(DatCollateral$form.why_questions.Anticipated_Collateral, dnn = "Anticipated Possibility of Selling Collateral")), percentage_column= round(Freq/nrow(DatCollateral)*100, digits = 2))
+   
+   kable(AnticipatedSellers, caption = "Anticipation of Collateral Selling Among those that Sold Collateral", col.names = c("Anticpated Selling Collateral", "Number in Sample", "Percent of Collateral Sellers"))
+  
+  # Anticipation amongst the entire group using version 1
+   levels(DatNonCollateralv1$form.why_questions.Anticipated_Collateral)[levels(DatNonCollateralv1$form.why_questions.Anticipated_Collateral)=="1"] <- "Yes"    
+        levels(DatNonCollateralv1$form.why_questions.Anticipated_Collateral)[levels(DatNonCollateralv1$form.why_questions.Anticipated_Collateral)=="0"] <- "No" 
+        
+        DatNonCollateralv1$form.why_questions.Anticipated_Collateral <- factor(DatNonCollateralv1$form.why_questions.Anticipated_Collateral,levels(DatNonCollateralv1$form.why_questions.Anticipated_Collateral)[c(2,1)])
+   
+   AnticipatedNonSellers <- transform(as.data.frame(table(DatNonCollateralv1$form.why_questions.Anticipated_Collateral, dnn = "Anticipated Possibility of Selling Collateral")), percentage_column=Freq/nrow(DatNonCollateralv1)*100)
+   
+   kable(AnticipatedNonSellers, caption = "Anticipation of Collateral Selling Among those that Did Not Sell Collateral", col.names = c("Anticpated Selling Collateral", "Number in Sample", "Percent of Non-Sellers"))
+  
+```
+
+<br>
+6. GLs are primarily responsible for pressuring clients to sell collateral and enforcing the decision to sell collateral.
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+  # I want to calculate percentages based on the number of people who were pressured or had stuff taken without consent.  I don't want to just have total for the entire sample though that number is useful to show the size of the group that is being targetted here.
+
+  levels(datnegative$form.Collateral_Group_Repayment_Questions.Harrassers.FO)[levels(datnegative$form.Collateral_Group_Repayment_Questions.Harrassers.FO)=="1"] <- "Yes"  
+
+  HarrassersFO <- transform(as.data.frame(table(datnegative$form.Collateral_Group_Repayment_Questions.Harrassers.FO)), percentage_column= round(Freq/nrow(datnegative)*100, digits = 2))
+    kable(HarrassersFO, caption = "Collateral Seller Claiming Pressure from FO", col.names = c("Pressured by FO", "Number of Clients in Sample","Percent of Collateral Sellers with Negative Experiences"))
+    
+    levels(datnegative$form.Collateral_Group_Repayment_Questions.Harrassers.GL)[levels(datnegative$form.Collateral_Group_Repayment_Questions.Harrassers.GL)=="1"] <- "Yes" 
+    
+  HarrassersGL <- transform(as.data.frame(table(datnegative$form.Collateral_Group_Repayment_Questions.Harrassers.GL, dnn = "Pressured by GL")), percentage_column= round(Freq/nrow(datnegative)*100, digits = 2))
+    kable(HarrassersGL, caption = "Collateral Seller Claiming Pressure from GL", col.names = c("Pressured by GL", "Number of Clients in Sample","Percent of Collateral Sellers with Negative Experiences"))
+    
+    
+# Clean up enforcers column
+    #levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO)[levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO)=="1"] <- "Yes" 
+    
+    #levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO)[levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO)=="0"] <- "No" 
+    
+    #datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO <- factor(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO,levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO)[c(2,1)])
+    
+  #EnforcersFO <- transform(as.data.frame(table(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.FO)), percentage_column=round(Freq/nrow(datnegative)*100, digits = 2))
+   # kable(EnforcersFO, caption = "FO present at time Collateral Was Sold", col.names = c("FO Present", "Number of Clients in Sample","Percent of Collateral Sellers with Negative Experiences"))
+    
+    
+     #levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL)[levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL)=="1"] <- "Yes" 
+    
+     #levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL)[levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL)=="0"] <- "No" 
+     
+     #datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL <- factor(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL,levels(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL)[c(2,1)])
+    
+  #EnforcersGL <- transform(as.data.frame(table(datnegative$form.Collateral_Group_Repayment_Questions.Enforcers.GL, dnn = "Pressured by GL")), percentage_column= round(Freq/nrow(datnegative)*100, digits = 2))
+   # kable(EnforcersGL, caption = "GL present at time Collateral Was Sold", col.names = c("GL Present", "Number of Clients in Sample","Percent of Collateral Sellers with Negative Experiences"))
+  
+```
+      
+7. Collateral is usually sold towards the end of the season around harvest time
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+    #When was it sold
+
+    #levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)=="1"] <- "Yes"    
+     #   levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)=="0"] <- "No" 
+        
+      #  dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time <- factor(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time,levels(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)[c(2,1)])
+  
+    CollateralSellingTime <- transform(as.data.frame(table(dat$form.Collateral_Group_Repayment_Questions.Collateral_Selling_Time)),  percentage_column= round(Freq/nrow(DatCollateral)*100, digits = 2))
+    
+    kable(CollateralSellingTime, caption = "Time in Year that Collateral Was Sold", col.names = c("Time Period", "Number of Clients in Sample","Percent of Collateral Sellers"))
+  
+```
+
+Note: Because of the way answers choices were constructed the the second most common time period (input-harvest) represents a very large period of time.  In future surveys it would be best to ask for the month.  It might be possible to get a more precise answer by plotting the vertical repayment data over time for collateral sellers in this data set.
+
+### Recommendations
+
+This section suggest potential changes that can be implemented this year to reduce the negative effects of selling collateral on client experience and program impact. 
+  
+1.  Retraining GLs on collateral agreements and best practices around harvest time could help improve client experience by reinforcing concepts when they are most relevant.
+
+2.  Set and communicate repercussions for GLs who are taking collateral without consent.  
+  
+Currently, the Case Investigations team that handles these cases only have guidelines for disciplinary action that can be taken against FOs.  Since GLs are not our employees we are limited in the types of action we can take against them if we find that they are harassing their groups members.  However, it may be possible to ban that individual from the coming season or prevent them from being a GL in the following season.     
+  
+  
+3. Improving Information on Collateral Related Harassment:
+  
+    + Increasing Self-Reported Cases of Harassment:  This might be something that is already being discussed.  It seems that only a small fraction of the people who experience some sort of harassment are able to file a case with CE.  There could be a number of reasons for this.  Farmers may be unaware of the CE hotline number, they could be unaware of the types of behavior that ought to be reported or perhaps there is a bottle-neck in CE. 
+
+    + Tracking Collateral Related Harassment Calls:  Currently CE lumps in all calls related to collateral into a bucket containing all harassment cases.  Specific types of issues can be tracked by introducing additional tags in Zendesk and training CE call center staff to identify when to use that tag. This would allow us to track the fraction of cases in a given year that are reported and addressed.
+  
+4. Reducing Negative Effect on Program Impact for Collateral Seller
+
+    + Stress that collateral items should be less than outstanding loan:  Clients can reduce the negative impact of selling collateral  by purposefully selling an asset that is lower than the outstanding amount and then paying the remaining portion in cash or having group members cover the smaller outstanding amount.
+  
+    + Stress a combined group coverage and collateral approach:   if we can have groups commit to collectively cover up to 1000 KES of anyone's outstanding loan we can significantly reduce the program impact lost in selling collateral.  This can be something that is included in the collateral agreement form.
+  
+    + Avoid pledging portion of the maize harvest:  GLs should be trained to suggest not selling a portion of their maize harvest to repay their loan since maize prices will be quite low at the time of harvest. Instead they could sell another asset like livestock or trees that might have more consistent valuations over the course of a year.  This can be discussed again in conjunction with the training on saving 3 bags for 3 months.
+  
+    + Narrowing Bands in Collateral Form:  The bands in the collateral agreement form can be narrowed and limited to the range of 1000 - 4000 KES which are the most common amounts covered by collateral. This may reduce the discrepancy between collateral value and outstanding amount.
+
+  
+### Topics for Futher Investigation 
+
+  This section considers longer term activities to improve client experience around collateral while balancing the beneficial effects on retention.
+  
+  1. Incentives for Customer Service for FO:  Right now our incentive structure pushes GLs and FOs to achieve repayment at risk of harassing their clients.  Incentivizing FOs based on some customer service metric could help equalize the weight put on both.
+  
+  2. Financial Planning Training:  Since most collateral sellers cannot point to a unanticipated expense, did not anticipate having to sell collateral and have a mix of transaction sizes often well below the credit limits it is possible that they could benefit from support on choosing loan sizes that are more conservative and planning out payments based on cash flows.  
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  
+  DatCollateral$totalcredit <- as.numeric(as.character(DatCollateral$totalcredit))
+  
+  TxforSellers <- density(DatCollateral$totalcredit, na.rm = TRUE)
+        #plot(TxforSellers, main = "Density Plot of Transaction Size Among Collateral Sellers")
+        
+
+```
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE, results= 'asis'}
+
+  # Does liklihood of collateral selling increase with transaction size?
+  
+  #print("Regression of Transaction Size on Selling Collateral")
+  TxSizeCollateralSelling <- glm(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold ~ dat$totalcredit, data=dat, family = binomial)
+  
+  #stargazer(TxSizeCollateralSelling, type = "html", title = "Regression of Transaction Size on Collateral Selling")
+```
+  
+  3. Relationship Between Payment Trajectory and Collateral:  Given the significant value of collateral relative to transaction size it appears that these clients have a significant portion of their loan remaining late in the season.  Perhaps identifying areas with large number of these clients can help us target training on collateral best practices.
+  
+  4. Revisiting a Restructured Emergency Loan or Loan Extension Product:  
+  Program Innovations recently trialed an Emergency Loan.  A similar product targeting clients who might otherwise sell collateral could help minimize the negative impact of voluntary collateral selling on impact.  In the trial the loan was for only 500 KES and the deadline for repayment was the same as for their main loan. A emergency loan of a larger size or fee for an extension on the current loan could help some clients avoid having to sell collateral.  In particular, those that had to sell a portion of their maize harvest to repay their loan might be able to wait till market prices are higher.
+  
+  5. Revisiting Alternative Liability Structures:
+  The most negative client experiences around collateral are probably occurring because of the pressures exerted by group liability.  A trial on individual liability (IL) by Program Innovations concluded that individual liability would only be beneficial to the sustainability of the program if default rate was significantly lower than it is now. Given that IL was not successful perhaps it would be worth brainstorming different liability structures that combine some of the benefits of group liability towards retention and repayment with the client protection benefits of IL. 
+  
+  6. Fluctuations in Livestock and Tree Market:  One Acre Fund could expend some resources in tracking the fluctuations in these common collateral items over the course of 1 year to make accurate suggestions to farmers on whether they should sell a portion of the maize harvest or try one of these common collateral items.  
+  
+  7. Investigating Relationship between Quality of Collateral Agreement and Retention:  Regressions using the phone survey data did not identify a statistically significant positive relationship between creation of a collateral agreement and retention or coerced collateral seizure.  However,  information was collected that could be used to measure the quality of a collateral agreement.  These included whether the agreement was written or verbal, whether different items were pledged for different outstanding loan amounts, whether the collateral form was used, and the number number of times the agreement was revisited over the year. Identifying a relationship between the quality of the agreement and client retention would involve first specifying a methodology for combining these different variables either as a part of a single variable or within a regression model.  This would be time-consuming and somewhat arbitrary so it has been left as a topic for future investigation.
+
+  
+### Data and Survey Methodology
+  
+#### Sampling Methodology:
+  
+Sampling was done randomly, stratified on district and proportional to the number of clients in each district.  However, the number of surveys completed for clients in each district were not in proportion to the number of clients in that district. This could affect how well this sample represents the country program.  The table below was constructed in order to give a sense of which districts were over or under-represented in this sample.
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+
+DistrictSamplingCompleted <- transform(as.data.frame(table(dat$districtname)), percentage_column=Freq/nrow(dat)*100)
+
+DistrictSamplingComparison <- merge(x = DistrictSampling,  y = DistrictSamplingCompleted, by = "Var1")
+
+DistrictSamplingComparison$Freq.x <- NULL 
+DistrictSamplingComparison$Freq.y <- NULL 
+DistrictSamplingComparison$diff <- DistrictSamplingComparison$percentage_column.x - DistrictSamplingComparison$percentage_column.y
+
+kable(DistrictSamplingComparison , caption = "Comparison between Intended and Actual Sampling by District", col.names = c("District Name", "% of All LR 2017 Clients", "% of Phone Survey Sample", "Difference"))
+
+```  
+
+GLs were not surveyed.  We believed their responses might be biased since they were supposed to have received a training on collateral best practices intended to guide their behavior.  
+
+Out of the 2221 surveys completed, 984 were completed using the first version of the survey where all questions were asked to all respondents.  For the remaining 1237 surveys the survey halted if the respondent was not a collateral seller.  The purpose of this change was to shorten the survey in order to achieve an adequate sample of collateral sellers.
+
+#### Link to Data and Analysis Script:
+
+Raw Data: (https://drive.google.com/drive/u/0/folders/1SyBQm4bSdiZefiigeMMKSloP1KNm2srL)
+
+Cleaning and Analysis Script: (https://drive.google.com/drive/u/0/folders/1WDwf2YBQQrk6zRWmwl4ZIFlYig8igHBm)
+
+#### Links to Regression Specifications and Diagnostics:
+  
+#### Link to Survey Questions:
+
+Version 1: (https://drive.google.com/drive/u/0/folders/1GYyKqFHcrFFKku3-ev5Zcrp-ja6LcMJG)
+
+Version 2: (https://drive.google.com/drive/u/0/folders/1kr8WqPSMYlkDS-bFCXZ5kkPfAyVQ9ePV)
+  
+#### Referenced Documents
+  
+  1. 2017 Collateral Memo
+  2. 2016 Enrollment Report 
+  3. 2016 Non-Rejoiners Report 
+  
+
+```{r , echo=FALSE, warning=FALSE, message=FALSE, results='asis'}
+  
+  # When looking at the collateral agreements I have to make sure to use data from version 1 cause  otherwise I don't have data points.
+  
+      # First converting collateral agreement into a numeric:
+        levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)=="Yes"] <- "1"    
+      
+        levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)[levels(datversion1$form.collateral_agreement_questions.Collateral_Agreement)=="No"] <- "0"   
+  
+        datversion1$form.collateral_agreement_questions.Collateral_Agreement <-   as.numeric(as.character(datversion1$form.collateral_agreement_questions.Collateral_Agreement))
+        
+        datversion1$form.Collateral_Group_Repayment_Questions.Collateral_Sold <-   as.numeric(as.character(datversion1$form.Collateral_Group_Repayment_Questions.Collateral_Sold))
+  
+  NegativeAgreementEnrollmentRegression <- glm(datversion1$Enrollment_Indicator ~ datversion1$form.collateral_agreement_questions.Collateral_Agreement + datversion1$CollateralNegativeCircumstances, data=datversion1, family = binomial  ) 
+  
+  #summary(NegativeAgreementEnrollmentRegression)
+  
+  # Although I cannot combine the Collateral_Sold variable in with the negative experience variable I can compare the relative importance with both.
+  
+  SoldAgreementEnrollmentRegression <- glm(datversion1$Enrollment_Indicator ~ datversion1$form.collateral_agreement_questions.Collateral_Agreement + datversion1$form.Collateral_Group_Repayment_Questions.Collateral_Sold, data=datversion1, family = binomial) 
+  
+  #summary(SoldAgreementEnrollmentRegression)
+  
+  #stargazer(SoldAgreementEnrollmentRegression, NegativeAgreementEnrollmentRegression, type = "html", title = "Effect of Agrement Creation on Re-enrollment in 2018 Controlling for Selling Collateral")
+  
+  
+  ## Now doing a regression looking at whether people with collateral agreements are more oftne in the volunatry category
+  NegativeAgreementRegression <- glm(DatCollateral$CollateralNegativeCircumstances ~ DatCollateral$form.collateral_agreement_questions.Collateral_Agreement, data=DatNonCollateral, family = binomial) 
+  
+  #summary(NegativeAgreementRegression)
+  
+  ## Now doing a regression on whether people with agreements are more or less likely to have sold collateral (group characteristic)
+  SoldAgreementRegression <- glm(datversion1$form.Collateral_Group_Repayment_Questions.Collateral_Sold ~ datversion1$form.collateral_agreement_questions.Collateral_Agreement, data=datversion1, family = binomial) 
+  
+  #summary(SoldAgreementRegression)
+  
+  #stargazer(NegativeAgreementRegression, SoldAgreementRegression, type = "html", title = "Comparison of Effect of Agreement Creation on Selling Collateral")
+  
+  
+  #We do one large regression looking at re-enrollment outcome as a proxy for client experience 
+  # then also negative client experience with collateral (pressure or consent thingy)
+  
+  #Does having an agreement make somoen more likely to have sold collateral? 
+  #AgreementEffectonSelling <- glm(dat$form.Collateral_Group_Repayment_Questions.Collateral_Sold  dat$Agree data=dat, family = #binomial)
+  
+  #CollateralNegativeEffectonEnrollment <- glm(dat$Enrollment_Indicator  dat$CollateralNegativeCircumstances, data=dat, family = binomial)
+  
+  #print("Regression of Selling Collateral on Renrollment Status for LR 2018")
+  #summary(CollateralEffectonEnrollment)
+  
+  
+  #print("Regression of Selling Collateral under Negtive Circumstances on Renrollment Status for LR 2018")
+  #summary(CollateralNegativeEffectonEnrollment)
+  
+  
+  
+  #AgreementonNegative <- glm(datversion1collateral$ ~ dat$CollateralNegativeCircumstances, data=datversion1collateral, family = binomial)
+  
+  
+  
+  #print("Of secondary importance would be adding in controls for the regressions above based on how 'good' the agreement was using the variables for if the agreement was revisited or if multiple items were specificed or if the form was used.")
+  
+  #print("Here I could also look at relationship between collateral agreements and fair value/inappopriatley large assets being sold")
+  
+  #print("And Look at why groups didn't make agreements.  ")
+  
+```
+
+  
+```{r , echo=FALSE, warning=FALSE, message=FALSE}
+  # 
+  # ### Learnings:  
+  # 'This section just some running thoughts on the subject they have yet to be weaved into the rest of the discussion or eliminated
+  # 
+  # 1. Collateral selling is usually happening to repay group members
+  #   The answer hear appears to be no.  It appears that group dynamics determine which option people are choosing to make sure they arent banned?  These two methods for reaching group completion appear to be largely complementary.
+  #   
+  # 2. Are Collateral Agreements correlated with collateral being sold with consent? 
+  #   - Do they increase likelihood of collateral selling? 
+  #       No it appears there are equal percentages of people who have created agreements among those that have sold collateral and       those who have not.  Pretty sure that is not the same question though.
+  #   - How are they correlated with the level of "pressure" reported as being felt by the client?
+  #   - Do groups that revisit their agreement multiple times do better in these outcomes?
+  # 
+  # 3. Collateral selling causes negative impact on the farmer:
+  #   The answer appears to be yes, becuase they are selling productive assests or food security (portion of maize harvest) often for less than they think they should have gotten for the item (I should specifcally check which kinds of items are correlated with the loss in value?). For maize indeed they are selling it when maize is cheapest. 
+  #   Is there literature that says collateral is ineffecient? They are essentially selling a non-liquid assest under time pressure and my assumption is that in order to repurchase that item at a later date they would have to pay more.
+  #   
+  # 4. Collateral selling appears to be reducing number of banned clients.
+  #   This seems to be correct people who sell collateral are in at least 90% of cases (though I still need to do some cleaning here) not defaulting.  Presumbly reducing the banning rate, though that can also be checked.  It would be a shame if most poeple who sold collateral are in groups with others who defaulted anyway causing the groups to be banned.
+  # 
+  # 5. Is Collateral Selling a district level culture?
+  #  - At this point I am not sure.  I was able to generate the table of frequencies by district but not really sure how reliable those will be since each district is of a different size and some samples for certain districts are very small.
+  # 
+  # 6. Is FO involvement in pressuring, enforcing or taking collateral concentrated in certain districts?
+  # 
+  # 7. Collateral Selling is associated with people who are not "steady repayers"
+  #   The answer here appears to be yes. The average percent of total credit is 42%.  Which is huge!  
+  #   
+  # 8. Related to the previous question, can collateral seller point to a single or couple unanticipated expenditure that resulted in the need to sell collateral or is it that they simply miscalculated their ability to take on debt of a certain size!
+  #   - I should be checking what kinds of expenditures that people list.  Are they really unanticipated?  school fees wouldnt count.  But a health shock should be counted.  Or are poeple expecting to repay with collateral from the outset - the people who used a portion of their harvest might be in that camp.
+  #   
+  # 9. Collateral is sold very late in the season as the last resort:
+  #   - Not really! Almost 42% of people claimed to have sold their collateral after input delivery and before harvest.  Almost all of the remaining 58% did sell it after harvest.  
+  #   - It could be that harvest times differ by location and therefore many people are doing it at harvest time but harvest time is around the repayment deadline anyway.  This is an important concern and the way this question was phrased did not account for this.  It would be possible to provide evidence in support or against this caveat by checking whether districts that had harvest periods very close to the repayment deadline were the ones producing most of these "after input delivery but before harvest"" answers.
+  #   
+  # 10. Are trainings and fomrs being attended? (These are from the mechanisms from the research plan)
+  #  - Multiple Items of varying Value
+  #  - Revisiting Agreement
+  #  - Used Collateral Form.
+  #  
+```
